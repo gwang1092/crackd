@@ -34,14 +34,29 @@ export const fetchPopularCaptionsAction = async (limit = 100, period: Period = '
     .limit(limit)
 
   if (period !== 'all') {
-    const now = new Date()
-    const since = new Date(now)
+    // Measure the window back from the newest popular caption (or today, if that is
+    // older), so a dataset that stopped growing still fills Past Week/Month/Year.
+    let anchor = new Date()
+    const { data: newest } = await supabase
+      .from('captions')
+      .select('created_datetime_utc, images!inner(is_public)')
+      .eq('images.is_public', true)
+      .eq('is_public', true)
+      .gt('like_count', 0)
+      .order('created_datetime_utc', { ascending: false })
+      .limit(1)
+    const newestDate = newest?.[0]?.created_datetime_utc
+    if (newestDate && new Date(newestDate) < anchor) {
+      anchor = new Date(newestDate)
+    }
+
+    const since = new Date(anchor)
     if (period === 'year') {
-      since.setFullYear(now.getFullYear() - 1)
+      since.setFullYear(anchor.getFullYear() - 1)
     } else if (period === 'past30') {
-      since.setDate(now.getDate() - 30)
+      since.setDate(anchor.getDate() - 30)
     } else if (period === 'week') {
-      since.setDate(now.getDate() - 7)
+      since.setDate(anchor.getDate() - 7)
     }
     query = query.gte('created_datetime_utc', since.toISOString())
   }

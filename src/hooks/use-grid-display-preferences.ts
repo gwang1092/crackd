@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from 'react'
 
-export const ITEMS_PER_PAGE_OPTIONS = [4, 8, 12, 16, 20, 24] as const
+export const ITEMS_PER_PAGE_OPTIONS = [4, 8, 16] as const
 
 export const GRID_SHAPES = ['original', 'square', 'wide'] as const
 

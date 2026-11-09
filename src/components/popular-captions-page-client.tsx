@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { fetchPopularCaptionsAction } from "@/app/actions/captions/fetch-popular-captions-action";
 import {
   toggleCaptionVoteAction,
@@ -28,7 +28,14 @@ import {
 import { CaptionModal } from "@/components/ui/caption-modal";
 import { BookmarkButton } from "@/components/ui/bookmark-button";
 import { Top100CaptionImage } from "@/components/top-100-caption-image";
-import { GridDisplayControls, SHAPE_IMAGE_CLASSES } from "@/components/grid-display-controls";
+import {
+  DENSITY_CLASSES,
+  GRID_GAP_CLASSES,
+  GridDisplayControls,
+  ROWS_PER_PAGE,
+  SHAPE_IMAGE_CLASSES,
+  getGridDensity,
+} from "@/components/grid-display-controls";
 import { useGridDisplayPreferences } from "@/hooks/use-grid-display-preferences";
 
 // functions to load in our pregenrated thumbnails
@@ -103,7 +110,7 @@ export default function PopularCaptionsPageClient({
   const [isLoading, setIsLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const { itemsPerPage, setItemsPerPage, shape, setShape } = useGridDisplayPreferences();
-  const [visibleCount, setVisibleCount] = useState(8);
+  const [visibleCount, setVisibleCount] = useState(8 * ROWS_PER_PAGE);
   const { toast } = useToast();
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(initialIsAuthenticated);
@@ -319,24 +326,25 @@ export default function PopularCaptionsPageClient({
   }, [selectedIndex, popularCaptions.length]);
 
   const loadMore = () => {
-    setVisibleCount((prev) => prev + itemsPerPage);
+    setVisibleCount((prev) => prev + itemsPerPage * ROWS_PER_PAGE);
   };
 
   useEffect(() => {
-    setVisibleCount(itemsPerPage);
+    setVisibleCount(itemsPerPage * ROWS_PER_PAGE);
   }, [itemsPerPage]);
 
   const handleItemsPerPageChange = (value: number) => {
     setItemsPerPage(value);
-    setVisibleCount(value);
+    setVisibleCount(value * ROWS_PER_PAGE);
   };
 
+  const density = getGridDensity(itemsPerPage);
   const visibleCaptions = popularCaptions.slice(0, visibleCount);
   const hasMore = visibleCount < popularCaptions.length;
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4">
+      <div className="ml-[calc(50%-50vw)] w-screen px-6">
         <div
           className="flex justify-center mb-8 relative"
           style={{ height: "44px" }}
@@ -375,7 +383,7 @@ export default function PopularCaptionsPageClient({
   }
 
   return (
-    <div className="container mx-auto px-1 py-1">
+    <div className="ml-[calc(50%-50vw)] w-screen px-6 py-1">
       {/* Mobile-only Get Crackd Box */}
       <div className="block sm:hidden w-full mb-8">
         <div
@@ -469,7 +477,7 @@ export default function PopularCaptionsPageClient({
         </div>
       </div>
       <div className="flex-1 w-full flex flex-col gap-8 p-4 relative">
-        <div className="w-full max-w-7xl mx-auto px-4">
+        <div className="w-full">
           <GridDisplayControls
             itemsPerPage={itemsPerPage}
             onItemsPerPageChange={handleItemsPerPageChange}
@@ -481,7 +489,13 @@ export default function PopularCaptionsPageClient({
       {visibleCaptions.length === 0 ? (
         <p className="text-center text-gray-400 mt-12 text-lg">No captions found.</p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div
+          data-density={density}
+          style={{ "--cols": itemsPerPage } as CSSProperties}
+          className={`group/grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3
+                      lg:grid-cols-[repeat(var(--cols),minmax(0,1fr))]
+                      ${GRID_GAP_CLASSES[density]}`}
+        >
           {visibleCaptions.map((caption, index) => {
             // generate our thumbnail urls
             const info = parseImageUrl(caption.image_url);
@@ -510,14 +524,22 @@ export default function PopularCaptionsPageClient({
                   className="relative bg-white dark:bg-[#1a1a1a] rounded-lg overflow-hidden
                          shadow-md dark:shadow-lg ring-1 ring-gray-200 dark:ring-0
                          hover:shadow-xl transition-all duration-300 flex flex-col w-full
-                         sm:max-w-[320px] sm:mx-auto"
+                         sm:max-w-[320px] sm:mx-auto lg:max-w-none"
                 >
                   {/* Top Section - Branding */}
-                  <div className="p-3 flex justify-between items-center">
+                  <div
+                    className={`p-3 flex justify-between items-center
+                                ${DENSITY_CLASSES.header}`}
+                  >
                     {/* Left: Crackd branding */}
                     <div className="flex items-center gap-2">
                       <BrandImage variant="mark" alt="Crackd" className="w-6 h-6" />
-                      <span className="text-primary text-sm font-bold">Crackd</span>
+                      <span
+                        className={`text-primary text-sm font-bold
+                                    ${DENSITY_CLASSES.brandLabel}`}
+                      >
+                        Crackd
+                      </span>
                     </div>
 
                     {/* Right: Upvote/Downvote counter */}
@@ -581,17 +603,20 @@ export default function PopularCaptionsPageClient({
                   </div>
 
                   {/* Caption Text - Below header */}
-                  <div className="px-3 pb-3">
+                  <div className={`px-3 pb-3 ${DENSITY_CLASSES.captionBlock}`}>
                     <p
-                      className="text-gray-900 dark:text-white text-base leading-relaxed
-                                 font-medium"
+                      className={`text-gray-900 dark:text-white text-base leading-relaxed
+                                 font-medium ${DENSITY_CLASSES.captionText}`}
                     >
                       {caption.content}
                     </p>
                   </div>
 
                   {/* Main Image */}
-                  <div className={`w-full px-3 pb-3 ${SHAPE_IMAGE_CLASSES[shape]}`}>
+                  <div
+                    className={`w-full px-3 pb-3 ${DENSITY_CLASSES.imageWrap}
+                                ${SHAPE_IMAGE_CLASSES[shape]}`}
+                  >
                     <Top100CaptionImage
                       src={displayUrl}
                       srcSet={srcSet}
@@ -601,8 +626,8 @@ export default function PopularCaptionsPageClient({
 
                   {/* Bottom Action Bar */}
                   <div
-                    className="mt-auto p-3 bg-gray-50 dark:bg-[#1a1a1a] border-t border-gray-200
-                               dark:border-white/10"
+                    className={`mt-auto p-3 bg-gray-50 dark:bg-[#1a1a1a] border-t border-gray-200
+                               dark:border-white/10 ${DENSITY_CLASSES.actionBar}`}
                   >
                     <div className="flex items-center justify-between">
                       <div
