@@ -33,6 +33,7 @@ import {
   GRID_GAP_CLASSES,
   GridDisplayControls,
   ROWS_PER_PAGE,
+  STAGGER_ITEM_CLASSES,
   SHAPE_IMAGE_CLASSES,
   getGridDensity,
 } from "@/components/grid-display-controls";
@@ -109,7 +110,8 @@ export default function PopularCaptionsPageClient({
   const [userVotes, setUserVotes] = useState<Record<string, 1 | -1 | null>>(initialUserVotes);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const { itemsPerPage, setItemsPerPage, shape, setShape } = useGridDisplayPreferences();
+  const { itemsPerPage, setItemsPerPage, shape, setShape, layout, setLayout } =
+    useGridDisplayPreferences();
   const [visibleCount, setVisibleCount] = useState(8 * ROWS_PER_PAGE);
   const { toast } = useToast();
   const router = useRouter();
@@ -483,6 +485,8 @@ export default function PopularCaptionsPageClient({
             onItemsPerPageChange={handleItemsPerPageChange}
             shape={shape}
             onShapeChange={setShape}
+            layout={layout}
+            onLayoutChange={setLayout}
           />
         </div>
         </div>
@@ -517,7 +521,8 @@ export default function PopularCaptionsPageClient({
             return (
               <div
                 key={caption.id}
-                className="relative cursor-pointer group w-full h-full flex"
+                className={`relative cursor-pointer group w-full h-full flex
+                          ${layout === "staggered" ? STAGGER_ITEM_CLASSES : ""}`}
                 onClick={() => handleImageClick(index)}
               >
                 <div

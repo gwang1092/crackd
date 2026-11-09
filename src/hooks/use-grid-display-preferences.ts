@@ -2,15 +2,19 @@
 
 import { useCallback, useSyncExternalStore } from 'react'
 
-export const ITEMS_PER_PAGE_OPTIONS = [4, 8, 16] as const
+export const ITEMS_PER_PAGE_OPTIONS = [4, 6, 8, 10] as const
 
 export const GRID_SHAPES = ['original', 'square', 'wide'] as const
 
 export type GridShape = (typeof GRID_SHAPES)[number]
 
-type GridPreferences = { itemsPerPage: number; shape: GridShape }
+export const GRID_LAYOUTS = ['grid', 'staggered'] as const
 
-const DEFAULTS: GridPreferences = { itemsPerPage: 8, shape: 'original' }
+export type GridLayout = (typeof GRID_LAYOUTS)[number]
+
+type GridPreferences = { itemsPerPage: number; shape: GridShape; layout: GridLayout }
+
+const DEFAULTS: GridPreferences = { itemsPerPage: 8, shape: 'original', layout: 'grid' }
 const STORAGE_KEY = 'crackd:grid-display'
 const CHANGE_EVENT = 'crackd:grid-display-change'
 
@@ -19,6 +23,9 @@ const isItemsPerPage = (value: unknown): value is number =>
 
 const isGridShape = (value: unknown): value is GridShape =>
   typeof value === 'string' && (GRID_SHAPES as readonly string[]).includes(value)
+
+const isGridLayout = (value: unknown): value is GridLayout =>
+  typeof value === 'string' && (GRID_LAYOUTS as readonly string[]).includes(value)
 
 // Holds the latest choice even when localStorage is unavailable (private mode).
 let memoryValue: string | null = null
@@ -47,12 +54,17 @@ const getServerSnapshot = (): string | null => null
 const parse = (raw: string | null): GridPreferences => {
   if (!raw) return DEFAULTS
   try {
-    const saved = JSON.parse(raw) as { itemsPerPage?: unknown; shape?: unknown }
+    const saved = JSON.parse(raw) as {
+      itemsPerPage?: unknown
+      shape?: unknown
+      layout?: unknown
+    }
     return {
       itemsPerPage: isItemsPerPage(saved.itemsPerPage)
         ? saved.itemsPerPage
         : DEFAULTS.itemsPerPage,
       shape: isGridShape(saved.shape) ? saved.shape : DEFAULTS.shape,
+      layout: isGridLayout(saved.layout) ? saved.layout : DEFAULTS.layout,
     }
   } catch {
     return DEFAULTS
@@ -70,23 +82,20 @@ const save = (next: GridPreferences) => {
   window.dispatchEvent(new Event(CHANGE_EVENT))
 }
 
+// Merge into the latest saved value so each setter never overwrites the others.
+const update = (patch: Partial<GridPreferences>) => save({ ...parse(getSnapshot()), ...patch })
+
 /**
- * Remembers how many memes to show at a time and which tile shape to use,
- * saved in the browser so it survives a reload.
+ * Remembers how many memes to show per row, the tile shape and the layout
+ * (aligned grid or staggered columns), saved in the browser across reloads.
  */
 export function useGridDisplayPreferences() {
   const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
-  const { itemsPerPage, shape } = parse(raw)
+  const current = parse(raw)
 
-  const setItemsPerPage = useCallback(
-    (value: number) => save({ itemsPerPage: value, shape }),
-    [shape]
-  )
+  const setItemsPerPage = useCallback((value: number) => update({ itemsPerPage: value }), [])
+  const setShape = useCallback((value: GridShape) => update({ shape: value }), [])
+  const setLayout = useCallback((value: GridLayout) => update({ layout: value }), [])
 
-  const setShape = useCallback(
-    (value: GridShape) => save({ itemsPerPage, shape: value }),
-    [itemsPerPage]
-  )
-
-  return { itemsPerPage, setItemsPerPage, shape, setShape }
+  return { ...current, setItemsPerPage, setShape, setLayout }
 }
