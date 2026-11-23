@@ -1,12 +1,6 @@
 'use client'
 
-import {
-  LayoutDashboard,
-  LayoutGrid,
-  RectangleHorizontal,
-  RectangleVertical,
-  Square,
-} from 'lucide-react'
+import { Monitor, Smartphone } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Select,
@@ -16,96 +10,146 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  ITEMS_PER_PAGE_OPTIONS,
-  type GridLayout,
-  type GridShape,
+  DESKTOP_COLUMN_OPTIONS,
+  MOBILE_COLUMN_OPTIONS,
+  type GridDensity,
+  type Viewport,
 } from '@/hooks/use-grid-display-preferences'
 import { cn } from '@/lib/utils'
 
-const SHAPE_OPTIONS: Array<{ value: GridShape; label: string; Icon: LucideIcon }> = [
-  { value: 'original', label: 'Original', Icon: RectangleVertical },
-  { value: 'square', label: 'Square', Icon: Square },
-  { value: 'wide', label: 'Wide', Icon: RectangleHorizontal },
+const MODE_OPTIONS: Array<{ value: 'desktop' | 'mobile'; label: string; Icon: LucideIcon }> = [
+  { value: 'desktop', label: 'Desktop', Icon: Monitor },
+  { value: 'mobile', label: 'Mobile', Icon: Smartphone },
 ]
 
-const LAYOUT_OPTIONS: Array<{ value: GridLayout; label: string; Icon: LucideIcon }> = [
-  { value: 'grid', label: 'Aligned grid', Icon: LayoutGrid },
-  { value: 'staggered', label: 'Staggered columns', Icon: LayoutDashboard },
-]
-
-/** Tailwind classes for the image area of a card, per shape. */
-export const SHAPE_IMAGE_CLASSES: Record<GridShape, string> = {
-  original: [
-    'flex-1 min-h-[320px]',
-    'lg:group-data-[density=compact]/grid:min-h-[200px]',
-  ].join(' '),
-  square: 'aspect-square',
-  wide: 'aspect-video',
-}
-
-/** Rows of memes shown before "Load More", whatever the per-row setting. */
-export const ROWS_PER_PAGE = 2
-
-export type GridDensity = 'regular' | 'compact'
-
-/** More memes per row means smaller cards: 4 and 6 are regular, 8 and 10 are compact. */
-export const getGridDensity = (columns: number): GridDensity =>
-  columns >= 8 ? 'compact' : 'regular'
+/** Every meme sits in a square tile. */
+export const IMAGE_AREA_CLASS = 'aspect-square'
 
 export const GRID_GAP_CLASSES: Record<GridDensity, string> = {
   regular: 'gap-6',
-  compact: 'gap-6 lg:gap-3',
+  compact: 'gap-3',
 }
 
-/** Staggered layout: from `lg` up, every second column drops down a little. */
-export const STAGGER_ITEM_CLASSES = 'lg:h-auto lg:self-start lg:even:mt-10'
+/**
+ * Caption text is never cut off: the longer the caption, the smaller the text, and the
+ * more columns there are, the sooner it shrinks. Full class names so Tailwind finds them.
+ */
+export const getCaptionTextClasses = (text: string, density: GridDensity, tight: boolean) => {
+  if (density === 'regular') return 'text-base leading-relaxed'
+  const length = text.length
+  const size = tight
+    ? length <= 40
+      ? 'text-xs'
+      : length <= 80
+        ? 'text-[11px]'
+        : length <= 130
+          ? 'text-[10px]'
+          : 'text-[9px]'
+    : length <= 90
+      ? 'text-xs'
+      : length <= 160
+        ? 'text-[11px]'
+        : length <= 240
+          ? 'text-[10px]'
+          : 'text-[9px]'
+  return `${size} leading-snug break-words`
+}
 
-// The grid element carries `group/grid` and `data-density`; these react to it from
-// `lg` up, where the column count equals the Show setting.
+// The grid element carries `group/grid` and `data-density`; compact cards use less space.
 export const DENSITY_CLASSES = {
-  header: 'lg:group-data-[density=compact]/grid:p-2',
-  brandLabel: 'lg:group-data-[density=compact]/grid:hidden',
+  header: 'group-data-[density=compact]/grid:p-2',
+  brandLabel: 'group-data-[density=compact]/grid:hidden',
   captionBlock: [
-    'lg:group-data-[density=compact]/grid:px-2',
-    'lg:group-data-[density=compact]/grid:pb-2',
-  ].join(' '),
-  captionText: [
-    'lg:group-data-[density=compact]/grid:text-xs',
-    'lg:group-data-[density=compact]/grid:leading-snug',
-    'lg:group-data-[density=compact]/grid:line-clamp-4',
+    'flex-1',
+    'group-data-[density=compact]/grid:px-2',
+    'group-data-[density=compact]/grid:pb-2',
   ].join(' '),
   imageWrap: [
-    'lg:group-data-[density=compact]/grid:px-2',
-    'lg:group-data-[density=compact]/grid:pb-2',
+    'group-data-[density=compact]/grid:px-2',
+    'group-data-[density=compact]/grid:pb-2',
   ].join(' '),
-  actionBar: 'lg:group-data-[density=compact]/grid:p-1.5',
+  actionBar: 'group-data-[density=compact]/grid:p-1.5',
 }
 
 interface GridDisplayControlsProps {
-  itemsPerPage: number
-  onItemsPerPageChange: (value: number) => void
-  shape: GridShape
-  onShapeChange: (value: GridShape) => void
-  layout: GridLayout
-  onLayoutChange: (value: GridLayout) => void
+  viewport: Viewport
+  onModeChange: (value: 'desktop' | 'mobile') => void
+  desktopColumns: number
+  onDesktopColumnsChange: (value: number) => void
+  mobileColumns: number
+  onMobileColumnsChange: (value: number) => void
+}
+
+function ToggleGroup<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: Array<{ value: T; label: string; Icon: LucideIcon }>
+  value: T
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        className="flex overflow-hidden rounded-lg border border-primary/20"
+      >
+        {options.map(({ value: optionValue, label: optionLabel, Icon }) => {
+          const isActive = value === optionValue
+          return (
+            <button
+              key={optionValue}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              aria-label={optionLabel}
+              title={optionLabel}
+              onClick={() => onChange(optionValue)}
+              className={cn(
+                'flex h-9 w-10 items-center justify-center transition-colors duration-200',
+                isActive
+                  ? 'bg-primary/20 text-primary'
+                  : 'bg-background/30 text-muted-foreground hover:bg-primary/10'
+              )}
+            >
+              <Icon className="h-4 w-4" />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export function GridDisplayControls({
-  itemsPerPage,
-  onItemsPerPageChange,
-  shape,
-  onShapeChange,
-  layout,
-  onLayoutChange,
+  viewport,
+  onModeChange,
+  desktopColumns,
+  onDesktopColumnsChange,
+  mobileColumns,
+  onMobileColumnsChange,
 }: GridDisplayControlsProps) {
+  const isDesktop = viewport === 'desktop'
+  const options = isDesktop ? DESKTOP_COLUMN_OPTIONS : MOBILE_COLUMN_OPTIONS
+  const columns = isDesktop ? desktopColumns : mobileColumns
+  const onColumnsChange = isDesktop ? onDesktopColumnsChange : onMobileColumnsChange
+
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-3">
+    <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 lg:justify-end">
+      <ToggleGroup
+        label="View"
+        options={MODE_OPTIONS}
+        value={isDesktop ? 'desktop' : 'mobile'}
+        onChange={onModeChange}
+      />
       <div className="flex items-center gap-3">
         <span className="text-sm text-muted-foreground">Show</span>
-        <Select
-          value={String(itemsPerPage)}
-          onValueChange={(value) => onItemsPerPageChange(Number(value))}
-        >
+        <Select value={String(columns)} onValueChange={(value) => onColumnsChange(Number(value))}>
           <SelectTrigger
             aria-label="Memes per row"
             className="h-9 w-[72px] border-primary/20 bg-background/30 text-primary
@@ -114,7 +158,7 @@ export function GridDisplayControls({
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="border border-primary/20 bg-background">
-            {ITEMS_PER_PAGE_OPTIONS.map((value) => (
+            {options.map((value) => (
               <SelectItem key={value} value={String(value)} className="text-primary">
                 {value}
               </SelectItem>
@@ -122,70 +166,6 @@ export function GridDisplayControls({
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground">per row</span>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground">Shape</span>
-        <div
-          role="radiogroup"
-          aria-label="Meme tile shape"
-          className="flex overflow-hidden rounded-lg border border-primary/20"
-        >
-          {SHAPE_OPTIONS.map(({ value, label, Icon }) => {
-            const isActive = shape === value
-            return (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={isActive}
-                aria-label={label}
-                title={label}
-                onClick={() => onShapeChange(value)}
-                className={cn(
-                  'flex h-9 w-10 items-center justify-center transition-colors duration-200',
-                  isActive
-                    ? 'bg-primary/20 text-primary'
-                    : 'bg-background/30 text-muted-foreground hover:bg-primary/10'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground">Layout</span>
-        <div
-          role="radiogroup"
-          aria-label="Meme layout"
-          className="flex overflow-hidden rounded-lg border border-primary/20"
-        >
-          {LAYOUT_OPTIONS.map(({ value, label, Icon }) => {
-            const isActive = layout === value
-            return (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={isActive}
-                aria-label={label}
-                title={label}
-                onClick={() => onLayoutChange(value)}
-                className={cn(
-                  'flex h-9 w-10 items-center justify-center transition-colors duration-200',
-                  isActive
-                    ? 'bg-primary/20 text-primary'
-                    : 'bg-background/30 text-muted-foreground hover:bg-primary/10'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-              </button>
-            )
-          })}
-        </div>
       </div>
     </div>
   )

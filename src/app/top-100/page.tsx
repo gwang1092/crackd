@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { fetchPopularCaptionsAction } from "@/app/actions/captions/fetch-popular-captions-action";
 import {
   toggleCaptionVoteAction,
@@ -31,12 +31,15 @@ import {
   DENSITY_CLASSES,
   GRID_GAP_CLASSES,
   GridDisplayControls,
-  ROWS_PER_PAGE,
-  STAGGER_ITEM_CLASSES,
-  SHAPE_IMAGE_CLASSES,
-  getGridDensity,
+  IMAGE_AREA_CLASS,
+  getCaptionTextClasses,
 } from "@/components/grid-display-controls";
-import { useGridDisplayPreferences } from "@/hooks/use-grid-display-preferences";
+import {
+  getGridConfig,
+  resolveViewport,
+  useGridDisplayPreferences,
+  useViewport,
+} from "@/hooks/use-grid-display-preferences";
 
 // functions to load in our pregenrated thumbnails
 const THUMBNAIL_SIZES = [320, 480, 640, 750, 828, 1080, 1200, 1920, 2048, 3840] as const;
@@ -80,9 +83,14 @@ export default function PopularCaptionsPage() {
   const [userVotes, setUserVotes] = useState<Record<string, 1 | -1 | null>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const { itemsPerPage, setItemsPerPage, shape, setShape, layout, setLayout } =
-    useGridDisplayPreferences();
-  const [visibleCount, setVisibleCount] = useState(8 * ROWS_PER_PAGE);
+  const realViewport = useViewport();
+  const prefs = useGridDisplayPreferences();
+  const viewport = resolveViewport(realViewport, prefs.mode);
+  const grid = getGridConfig(viewport, prefs);
+  // Mobile mode on a wide screen is shown in a phone-width column.
+  const isPhonePreview = realViewport === "desktop" && viewport !== "desktop";
+  const phoneWidth = isPhonePreview ? "mx-auto max-w-[430px]" : "";
+  const [visibleCount, setVisibleCount] = useState(grid.pageSize);
   const { toast } = useToast();
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
@@ -267,25 +275,20 @@ export default function PopularCaptionsPage() {
   }, [selectedIndex, popularCaptions.length]);
 
   const loadMore = () => {
-    setVisibleCount((prev) => prev + itemsPerPage * ROWS_PER_PAGE);
+    setVisibleCount((prev) => prev + grid.pageSize);
   };
 
+  // Start over at the first page when the layout (and so the page size) changes.
   useEffect(() => {
-    setVisibleCount(itemsPerPage * ROWS_PER_PAGE);
-  }, [itemsPerPage]);
+    setVisibleCount(grid.pageSize);
+  }, [grid.pageSize]);
 
-  const handleItemsPerPageChange = (value: number) => {
-    setItemsPerPage(value);
-    setVisibleCount(value * ROWS_PER_PAGE);
-  };
-
-  const density = getGridDensity(itemsPerPage);
   const visibleCaptions = popularCaptions.slice(0, visibleCount);
   const hasMore = visibleCount < popularCaptions.length;
 
   if (isLoading) {
     return (
-      <div className="ml-[calc(50%-50vw)] w-screen px-6">
+      <div className="ml-[calc(50%-50vw)] w-screen px-3 sm:px-6">
         <div
           className="flex justify-center mb-8 relative"
           style={{ height: "44px" }}
@@ -324,7 +327,7 @@ export default function PopularCaptionsPage() {
   }
 
   return (
-    <div className="ml-[calc(50%-50vw)] w-screen px-6 py-1">
+    <div className="ml-[calc(50%-50vw)] w-screen px-3 sm:px-6 py-1">
       {/* Mobile-only Get Crackd Box */}
       <div className="block sm:hidden w-full mb-8">
         <div
@@ -406,14 +409,14 @@ export default function PopularCaptionsPage() {
         </div>
       </div>
       <div className="flex-1 w-full flex flex-col gap-8 p-4 relative">
-        <div className="w-full">
+        <div className={`w-full ${phoneWidth}`}>
           <GridDisplayControls
-            itemsPerPage={itemsPerPage}
-            onItemsPerPageChange={handleItemsPerPageChange}
-            shape={shape}
-            onShapeChange={setShape}
-            layout={layout}
-            onLayoutChange={setLayout}
+            viewport={viewport}
+            onModeChange={prefs.setMode}
+            desktopColumns={prefs.desktopColumns}
+            onDesktopColumnsChange={prefs.setDesktopColumns}
+            mobileColumns={prefs.mobileColumns}
+            onMobileColumnsChange={prefs.setMobileColumns}
           />
         </div>
         </div>
@@ -421,11 +424,9 @@ export default function PopularCaptionsPage() {
         <p className="text-center text-gray-400 mt-12 text-lg">No captions found.</p>
       ) : (
         <div
-          data-density={density}
-          style={{ "--cols": itemsPerPage } as CSSProperties}
-          className={`group/grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3
-                      lg:grid-cols-[repeat(var(--cols),minmax(0,1fr))]
-                      ${GRID_GAP_CLASSES[density]}`}
+          data-density={grid.density}
+          style={{ gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))` }}
+          className={`group/grid grid ${GRID_GAP_CLASSES[grid.density]} ${phoneWidth}`}
         >
           {visibleCaptions.map((caption, index) => {
             // generate our thumbnail urls
@@ -448,8 +449,7 @@ export default function PopularCaptionsPage() {
             return (
               <div
                 key={caption.id}
-                className={`relative cursor-pointer group w-full h-full flex
-                          ${layout === "staggered" ? STAGGER_ITEM_CLASSES : ""}`}
+                className="relative cursor-pointer group w-full h-full flex"
                 onClick={() => handleImageClick(index)}
               >
                 <div
@@ -537,8 +537,12 @@ export default function PopularCaptionsPage() {
                   {/* Caption Text - Below header */}
                   <div className={`px-3 pb-3 ${DENSITY_CLASSES.captionBlock}`}>
                     <p
-                      className={`text-gray-900 dark:text-white text-base leading-relaxed
-                                 font-medium ${DENSITY_CLASSES.captionText}`}
+                      className={`text-gray-900 dark:text-white font-medium
+                                 ${getCaptionTextClasses(
+                                   caption.content ?? "",
+                                   grid.density,
+                                   grid.tight
+                                 )}`}
                     >
                       {caption.content}
                     </p>
@@ -547,7 +551,7 @@ export default function PopularCaptionsPage() {
                   {/* Main Image */}
                   <div
                     className={`w-full px-3 pb-3 ${DENSITY_CLASSES.imageWrap}
-                                ${SHAPE_IMAGE_CLASSES[shape]}`}
+                                ${IMAGE_AREA_CLASS}`}
                   >
                     <Top100CaptionImage
                       src={displayUrl}

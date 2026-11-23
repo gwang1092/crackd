@@ -2,30 +2,31 @@
 
 import { useCallback, useSyncExternalStore } from 'react'
 
-export const ITEMS_PER_PAGE_OPTIONS = [4, 6, 8, 10] as const
+/** Memes per row on desktop, and on a phone or tablet. */
+export const DESKTOP_COLUMN_OPTIONS = [4, 6, 8, 10] as const
+export const MOBILE_COLUMN_OPTIONS = [1, 2, 3] as const
 
-export const GRID_SHAPES = ['original', 'square', 'wide'] as const
+export type Viewport = 'phone' | 'tablet' | 'desktop'
 
-export type GridShape = (typeof GRID_SHAPES)[number]
+/** 'auto' follows the screen size; the others are picked by the person. */
+export type ViewMode = 'auto' | 'desktop' | 'mobile'
 
-export const GRID_LAYOUTS = ['grid', 'staggered'] as const
+type GridPreferences = {
+  desktopColumns: number
+  mobileColumns: number
+  mode: ViewMode
+}
 
-export type GridLayout = (typeof GRID_LAYOUTS)[number]
-
-type GridPreferences = { itemsPerPage: number; shape: GridShape; layout: GridLayout }
-
-const DEFAULTS: GridPreferences = { itemsPerPage: 8, shape: 'original', layout: 'grid' }
-const STORAGE_KEY = 'crackd:grid-display'
+const DEFAULTS: GridPreferences = {
+  desktopColumns: 8,
+  mobileColumns: 2,
+  mode: 'auto',
+}
+const STORAGE_KEY = 'crackd:grid-display-v3'
 const CHANGE_EVENT = 'crackd:grid-display-change'
 
-const isItemsPerPage = (value: unknown): value is number =>
-  typeof value === 'number' && (ITEMS_PER_PAGE_OPTIONS as readonly number[]).includes(value)
-
-const isGridShape = (value: unknown): value is GridShape =>
-  typeof value === 'string' && (GRID_SHAPES as readonly string[]).includes(value)
-
-const isGridLayout = (value: unknown): value is GridLayout =>
-  typeof value === 'string' && (GRID_LAYOUTS as readonly string[]).includes(value)
+const isOneOf = <T extends string | number>(options: readonly T[], value: unknown): value is T =>
+  (options as readonly unknown[]).includes(value)
 
 // Holds the latest choice even when localStorage is unavailable (private mode).
 let memoryValue: string | null = null
@@ -54,17 +55,17 @@ const getServerSnapshot = (): string | null => null
 const parse = (raw: string | null): GridPreferences => {
   if (!raw) return DEFAULTS
   try {
-    const saved = JSON.parse(raw) as {
-      itemsPerPage?: unknown
-      shape?: unknown
-      layout?: unknown
-    }
+    const saved = JSON.parse(raw) as Record<string, unknown>
     return {
-      itemsPerPage: isItemsPerPage(saved.itemsPerPage)
-        ? saved.itemsPerPage
-        : DEFAULTS.itemsPerPage,
-      shape: isGridShape(saved.shape) ? saved.shape : DEFAULTS.shape,
-      layout: isGridLayout(saved.layout) ? saved.layout : DEFAULTS.layout,
+      desktopColumns: isOneOf(DESKTOP_COLUMN_OPTIONS, saved.desktopColumns)
+        ? saved.desktopColumns
+        : DEFAULTS.desktopColumns,
+      mobileColumns: isOneOf(MOBILE_COLUMN_OPTIONS, saved.mobileColumns)
+        ? saved.mobileColumns
+        : DEFAULTS.mobileColumns,
+      mode: isOneOf(['auto', 'desktop', 'mobile'] as const, saved.mode)
+        ? saved.mode
+        : DEFAULTS.mode,
     }
   } catch {
     return DEFAULTS
@@ -86,16 +87,76 @@ const save = (next: GridPreferences) => {
 const update = (patch: Partial<GridPreferences>) => save({ ...parse(getSnapshot()), ...patch })
 
 /**
- * Remembers how many memes to show per row, the tile shape and the layout
- * (aligned grid or staggered columns), saved in the browser across reloads.
+ * Remembers memes per row (separately for desktop and mobile) and the view mode,
+ * saved in the browser across reloads.
  */
 export function useGridDisplayPreferences() {
   const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
   const current = parse(raw)
 
-  const setItemsPerPage = useCallback((value: number) => update({ itemsPerPage: value }), [])
-  const setShape = useCallback((value: GridShape) => update({ shape: value }), [])
-  const setLayout = useCallback((value: GridLayout) => update({ layout: value }), [])
+  const setDesktopColumns = useCallback((value: number) => update({ desktopColumns: value }), [])
+  const setMobileColumns = useCallback((value: number) => update({ mobileColumns: value }), [])
+  const setMode = useCallback((value: ViewMode) => update({ mode: value }), [])
 
-  return { ...current, setItemsPerPage, setShape, setLayout }
+  return { ...current, setDesktopColumns, setMobileColumns, setMode }
+}
+
+const DESKTOP_QUERY = '(min-width: 1024px)'
+const TABLET_QUERY = '(min-width: 640px)'
+
+const subscribeViewport = (onChange: () => void) => {
+  const queries = [window.matchMedia(DESKTOP_QUERY), window.matchMedia(TABLET_QUERY)]
+  queries.forEach((query) => query.addEventListener('change', onChange))
+  return () => queries.forEach((query) => query.removeEventListener('change', onChange))
+}
+
+const getViewport = (): Viewport => {
+  if (window.matchMedia(DESKTOP_QUERY).matches) return 'desktop'
+  if (window.matchMedia(TABLET_QUERY).matches) return 'tablet'
+  return 'phone'
+}
+
+/** Which size class the screen is in. Server render assumes a phone. */
+export function useViewport(): Viewport {
+  return useSyncExternalStore(subscribeViewport, getViewport, () => 'phone' as const)
+}
+
+/** The layout to use: the screen's own size unless the person picked a mode. */
+export function resolveViewport(real: Viewport, mode: ViewMode): Viewport {
+  if (mode === 'desktop') return 'desktop'
+  if (mode === 'mobile') return real === 'desktop' ? 'phone' : real
+  return real
+}
+
+export type GridDensity = 'regular' | 'compact'
+
+export type GridConfig = {
+  columns: number
+  density: GridDensity
+  /** So many columns that caption text needs the smallest sizes. */
+  tight: boolean
+  /** How many memes to show before "Load More". */
+  pageSize: number
+}
+
+const ROWS_PER_PAGE = { desktop: 2, tablet: 4, phone: 6 } as const
+
+/** Turns the screen size plus saved choices into the grid to draw. */
+export function getGridConfig(viewport: Viewport, prefs: GridPreferences): GridConfig {
+  // A tablet has room for two more columns than a phone at the same setting.
+  const columns =
+    viewport === 'desktop'
+      ? prefs.desktopColumns
+      : viewport === 'tablet'
+        ? prefs.mobileColumns + 2
+        : prefs.mobileColumns
+
+  const compactFrom = viewport === 'desktop' ? 8 : viewport === 'tablet' ? 4 : 2
+
+  return {
+    columns,
+    density: columns >= compactFrom ? 'compact' : 'regular',
+    tight: columns >= (viewport === 'desktop' ? 10 : viewport === 'tablet' ? 5 : 3),
+    pageSize: columns * ROWS_PER_PAGE[viewport],
+  }
 }
